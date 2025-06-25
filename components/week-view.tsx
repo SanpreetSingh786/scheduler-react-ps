@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useMemo, useState, useCallback } from "react"
+import { useMemo, useState, useCallback, useRef } from "react"
 import { GripVertical } from "lucide-react"
 import type { Appointment } from "./scheduling-dashboard"
 
@@ -34,18 +34,17 @@ export function WeekView({
   onAppointmentUpdate,
   onFacilityGroupReorder,
   onEditAppointment,
-  timeScale = 2,
+  timeScale = 6,
   timeOffset = 0,
   onTimeScaleWheel,
 }: WeekViewProps) {
   const [draggedAppointment, setDraggedAppointment] = useState<string | null>(null)
   const [dragOverCell, setDragOverCell] = useState<{ facility: string; date: Date; timeSlot: number } | null>(null)
-  const [dragPreview, setDragPreview] = useState<{
-    appointmentId: string
-    facility: string
-    dates: Date[]
-    mouseX: number
-    mouseY: number
+  const [resizingAppointment, setResizingAppointment] = useState<{
+    id: string
+    edge: "start" | "end"
+    originalStart: Date
+    originalEnd: Date
   } | null>(null)
 
   // Row reordering states
@@ -54,11 +53,12 @@ export function WeekView({
   const [dropPosition, setDropPosition] = useState<"above" | "below" | null>(null)
   const [currentGroups, setCurrentGroups] = useState<FacilityGroup[]>(facilityGroups)
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+
   // Create default groups if none provided
   const defaultGroups = useMemo(() => {
     if (facilityGroups.length > 0) return facilityGroups
 
-    // Group facilities by base name (remove " - OnCall" suffix)
     const groupMap = new Map<string, string[]>()
 
     facilities.forEach((facility) => {
@@ -77,18 +77,12 @@ export function WeekView({
     }))
   }, [facilities, facilityGroups])
 
-  // Use current groups or default groups
   const activeGroups = currentGroups.length > 0 ? currentGroups : defaultGroups
-
-  // Flatten facilities in order
-  const orderedFacilities = useMemo(() => {
-    return activeGroups.flatMap((group) => group.facilities)
-  }, [activeGroups])
 
   const weekDates = useMemo(() => {
     const startOfWeek = new Date(currentDate)
     const day = startOfWeek.getDay()
-    const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1) // Adjust for Monday start
+    const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1)
     startOfWeek.setDate(diff)
 
     return Array.from({ length: 7 }, (_, i) => {
@@ -209,14 +203,30 @@ export function WeekView({
     return lanes
   }, [])
 
-  // Group reordering handlers
+  // Mouse wheel handler for time scale and horizontal scrolling
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        onTimeScaleWheel?.(e)
+      } else if (e.shiftKey) {
+        // Horizontal scrolling with shift + wheel
+        e.preventDefault()
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollLeft += e.deltaY
+        }
+      }
+    },
+    [onTimeScaleWheel],
+  )
+
+  // Group reordering handlers (existing code)
   const handleGroupDragStart = useCallback(
     (e: React.DragEvent, groupId: string) => {
       setDraggedGroup(groupId)
       e.dataTransfer.effectAllowed = "move"
       e.dataTransfer.setData("text/plain", `group:${groupId}`)
 
-      // Create a custom drag image
       const dragImage = document.createElement("div")
       dragImage.className = "bg-blue-500 text-white px-4 py-2 rounded shadow-lg"
       dragImage.textContent = `Moving ${activeGroups.find((g) => g.id === groupId)?.name} Group`
@@ -233,7 +243,6 @@ export function WeekView({
     e.preventDefault()
     e.dataTransfer.dropEffect = "move"
 
-    // Calculate drop position based on mouse position
     const rect = e.currentTarget.getBoundingClientRect()
     const mouseY = e.clientY - rect.top
     const elementHeight = rect.height
@@ -244,7 +253,6 @@ export function WeekView({
   }, [])
 
   const handleGroupDragLeave = useCallback((e: React.DragEvent) => {
-    // Only clear if we're leaving the group entirely
     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
       setDragOverGroup(null)
       setDropPosition(null)
@@ -268,7 +276,6 @@ export function WeekView({
         if (draggedIndex !== -1 && targetIndex !== -1) {
           const [draggedGroup] = newGroups.splice(draggedIndex, 1)
 
-          // Insert based on drop position
           const insertIndex = dropPosition === "above" ? targetIndex : targetIndex + 1
           newGroups.splice(insertIndex, 0, draggedGroup)
 
@@ -284,10 +291,9 @@ export function WeekView({
     [activeGroups, onFacilityGroupReorder, dropPosition],
   )
 
-  // Appointment drag handlers (existing functionality)
+  // Appointment drag and resize handlers
   const handleDragStart = useCallback(
     (e: React.DragEvent, appointmentId: string) => {
-      // Don't allow appointment dragging when group is being dragged
       if (draggedGroup) {
         e.preventDefault()
         return
@@ -297,42 +303,13 @@ export function WeekView({
       e.dataTransfer.effectAllowed = "move"
       e.dataTransfer.setData("text/plain", `appointment:${appointmentId}`)
 
-      const appointment = appointments.find((apt) => apt.id === appointmentId)
-      if (appointment) {
-        const spanDates = getAppointmentSpanDates(appointment)
-        setDragPreview({
-          appointmentId,
-          facility: appointment.facility,
-          dates: spanDates,
-          mouseX: e.clientX,
-          mouseY: e.clientY,
-        })
-      }
-
       const dragImage = document.createElement("div")
       dragImage.style.opacity = "0"
       document.body.appendChild(dragImage)
       e.dataTransfer.setDragImage(dragImage, 0, 0)
       setTimeout(() => document.body.removeChild(dragImage), 0)
     },
-    [appointments, getAppointmentSpanDates, draggedGroup],
-  )
-
-  const handleDragMove = useCallback(
-    (e: React.DragEvent) => {
-      if (dragPreview) {
-        setDragPreview((prev) =>
-          prev
-            ? {
-                ...prev,
-                mouseX: e.clientX,
-                mouseY: e.clientY,
-              }
-            : null,
-        )
-      }
-    },
-    [dragPreview],
+    [draggedGroup],
   )
 
   const getTimeSlotFromPosition = useCallback((e: React.DragEvent, cellElement: HTMLElement) => {
@@ -347,7 +324,6 @@ export function WeekView({
     (e: React.DragEvent, facility: string, date: Date) => {
       const dragData = e.dataTransfer.getData("text/plain")
 
-      // Don't allow cell drops when dragging groups
       if (dragData.startsWith("group:")) {
         return
       }
@@ -371,7 +347,6 @@ export function WeekView({
       e.preventDefault()
       const dragData = e.dataTransfer.getData("text/plain")
 
-      // Don't handle group drops in cells
       if (dragData.startsWith("group:")) {
         return
       }
@@ -398,7 +373,9 @@ export function WeekView({
 
       setDraggedAppointment(null)
       setDragOverCell(null)
-      setDragPreview(null)
+      setDraggedGroup(null)
+      setDragOverGroup(null)
+      setDropPosition(null)
     },
     [appointments, onAppointmentUpdate, getTimeSlotFromPosition],
   )
@@ -406,11 +383,27 @@ export function WeekView({
   const handleDragEnd = useCallback(() => {
     setDraggedAppointment(null)
     setDragOverCell(null)
-    setDragPreview(null)
     setDraggedGroup(null)
     setDragOverGroup(null)
     setDropPosition(null)
   }, [])
+
+  // Resize handlers
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent, appointmentId: string, edge: "start" | "end") => {
+      e.stopPropagation()
+      const appointment = appointments.find((apt) => apt.id === appointmentId)
+      if (appointment) {
+        setResizingAppointment({
+          id: appointmentId,
+          edge,
+          originalStart: new Date(appointment.startTime),
+          originalEnd: new Date(appointment.endTime),
+        })
+      }
+    },
+    [appointments],
+  )
 
   const formatTime = useCallback((date: Date) => {
     return date.toLocaleTimeString("en-US", {
@@ -425,38 +418,22 @@ export function WeekView({
     return `${days[date.getDay() === 0 ? 6 : date.getDay() - 1]}, ${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}/${date.getFullYear()}`
   }, [])
 
+  // Time markers with 6-hour scale but 1-hour grid lines
   const timeMarkers = useMemo(() => {
     const markers = []
-    const visibleHours = 24 / timeScale
-    for (let i = 0; i <= visibleHours; i++) {
-      const hour = (timeOffset + i * timeScale) % 24
-      markers.push(hour)
+    for (let i = 0; i <= 24; i += timeScale) {
+      markers.push(i)
     }
     return markers
-  }, [timeScale, timeOffset])
+  }, [timeScale])
 
   const hourlySlots = useMemo(() => {
     const slots = []
-    for (let i = 0; i < 24; i += timeScale) {
-      slots.push((timeOffset + i) % 24)
+    for (let i = 0; i < 24; i++) {
+      slots.push(i)
     }
     return slots
-  }, [timeScale, timeOffset])
-
-  const isDraggedAppointmentInCell = useCallback(
-    (facility: string, date: Date, appointmentId: string) => {
-      if (!appointmentId) return false
-      const appointment = appointments.find((apt) => apt.id === appointmentId)
-      if (!appointment) return false
-
-      const spanDates = getAppointmentSpanDates(appointment)
-      return (
-        appointment.facility === facility &&
-        spanDates.some((spanDate) => spanDate.toDateString() === date.toDateString())
-      )
-    },
-    [appointments, getAppointmentSpanDates],
-  )
+  }, [])
 
   const getAppointmentDisplayInfo = useCallback(
     (appointment: Appointment, date: Date) => {
@@ -493,8 +470,29 @@ export function WeekView({
     [onEditAppointment],
   )
 
+  // Group multi-day appointments as single continuous blocks
+  const getGroupedAppointments = useCallback(
+    (facilityAppointments: Appointment[], date: Date) => {
+      const grouped = new Map<string, Appointment>()
+
+      facilityAppointments.forEach((appointment) => {
+        const spanDates = getAppointmentSpanDates(appointment)
+        const isInSpan = spanDates.some((spanDate) => spanDate.toDateString() === date.toDateString())
+
+        if (isInSpan) {
+          if (!grouped.has(appointment.id)) {
+            grouped.set(appointment.id, appointment)
+          }
+        }
+      })
+
+      return Array.from(grouped.values())
+    },
+    [getAppointmentSpanDates],
+  )
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" onWheel={handleWheel}>
       {/* Header Row */}
       <div className="grid grid-cols-8 border-b bg-gray-50">
         <div className="p-4 border-r bg-gray-100 font-medium text-sm">Facility Name</div>
@@ -502,26 +500,22 @@ export function WeekView({
           <div key={index} className="p-4 border-r text-center">
             <div className="font-medium text-sm mb-4">{formatDate(date)}</div>
             <div className="relative h-8">
-              <div className="flex text-xs text-gray-500 relative h-6 ml-48" onWheel={onTimeScaleWheel}>
-                {timeMarkers.map((hour, index) => (
-                  <div
-                    key={`${hour}-${index}`}
-                    className="absolute text-xs font-medium"
-                    style={{ left: `${(index / (timeMarkers.length - 1)) * 100}%`, transform: "translateX(-50%)" }}
-                  >
+              <div className="flex justify-between text-xs text-gray-500 px-2">
+                {timeMarkers.map((hour) => (
+                  <div key={hour} className="text-center">
                     {String(hour).padStart(2, "0")}:00
                   </div>
                 ))}
               </div>
-              <div className="absolute top-4 left-0 right-0 h-px bg-gray-300"></div>
+              <div className="absolute top-6 left-0 right-0 h-px bg-gray-300"></div>
             </div>
           </div>
         ))}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto">
-        <div className="grid grid-cols-8">
+      <div className="flex-1 overflow-auto" ref={scrollContainerRef}>
+        <div className="grid grid-cols-8 min-w-[1200px]">
           {activeGroups.map((group, groupIndex) => (
             <div key={group.id} className="contents">
               {/* Drop zone above group */}
@@ -577,24 +571,21 @@ export function WeekView({
                   {/* Date Columns */}
                   {weekDates.map((date, dateIndex) => {
                     const dayAppointments = getAppointmentsForFacilityAndDate(facility, date)
-                    const appointmentLanes = getAppointmentLanes(dayAppointments, date)
-                    const isDraggedCell =
-                      draggedAppointment && isDraggedAppointmentInCell(facility, date, draggedAppointment)
+                    const groupedAppointments = getGroupedAppointments(dayAppointments, date)
+                    const appointmentLanes = getAppointmentLanes(groupedAppointments, date)
 
                     return (
                       <div
                         key={`${facility}-${dateIndex}`}
                         className={`border-r border-b relative bg-white transition-all duration-200 ${
-                          isDraggedCell ? "ring-2 ring-blue-400 bg-blue-50" : ""
-                        } ${draggedGroup === group.id ? "opacity-50 pointer-events-none" : ""} ${
-                          draggedGroup && draggedGroup !== group.id ? "pointer-events-none" : ""
-                        }`}
+                          draggedGroup === group.id ? "opacity-50 pointer-events-none" : ""
+                        } ${draggedGroup && draggedGroup !== group.id ? "pointer-events-none" : ""}`}
                         style={{ minHeight: `${Math.max(180, appointmentLanes.length * 60)}px` }}
                         onDragOver={(e) => handleDragOver(e, facility, date)}
                         onDragLeave={handleDragLeave}
                         onDrop={(e) => handleDrop(e, facility, date)}
                       >
-                        {/* Time grid lines */}
+                        {/* Time grid lines - 1 hour intervals */}
                         <div className="absolute inset-0 pointer-events-none">
                           {hourlySlots.map((hour) => (
                             <div
@@ -605,7 +596,7 @@ export function WeekView({
                           ))}
                         </div>
 
-                        {/* Precise drop zone highlighting - only when not dragging groups */}
+                        {/* Precise drop zone highlighting */}
                         {!draggedGroup &&
                           dragOverCell?.facility === facility &&
                           dragOverCell?.date.toDateString() === date.toDateString() && (
@@ -628,7 +619,7 @@ export function WeekView({
                             return (
                               <div
                                 key={appointment.id}
-                                className={`absolute rounded px-3 py-2 text-xs text-white font-medium ${appointment.color} cursor-move hover:opacity-80 transition-all duration-200 shadow-md border-l-4 border-white ${isDragging ? "opacity-50 shadow-lg scale-105 z-50" : ""}`}
+                                className={`absolute rounded px-3 py-2 text-xs text-white font-medium ${appointment.color} cursor-move hover:opacity-80 transition-all duration-200 shadow-sm border-l-4 border-white group ${isDragging ? "opacity-50 shadow-lg scale-105 z-50" : ""} ${displayInfo.isMultiDay && !displayInfo.isFirstDay ? "rounded-l-none border-l-0" : ""} ${displayInfo.isMultiDay && !displayInfo.isLastDay ? "rounded-r-none" : ""}`}
                                 style={{
                                   ...style,
                                   top: `${laneIndex * 50 + 10}px`,
@@ -639,10 +630,31 @@ export function WeekView({
                                 onDragStart={(e) => handleDragStart(e, appointment.id)}
                                 onDoubleClick={() => handleAppointmentDoubleClick(appointment)}
                               >
-                                <div className="font-semibold truncate">{appointment.title}</div>
+                                {/* Resize handles */}
+                                {displayInfo.isFirstDay && (
+                                  <div
+                                    className="absolute left-0 top-0 bottom-0 w-1 cursor-w-resize opacity-0 group-hover:opacity-100 bg-white bg-opacity-50"
+                                    onMouseDown={(e) => handleResizeStart(e, appointment.id, "start")}
+                                  />
+                                )}
+                                {displayInfo.isLastDay && (
+                                  <div
+                                    className="absolute right-0 top-0 bottom-0 w-1 cursor-e-resize opacity-0 group-hover:opacity-100 bg-white bg-opacity-50"
+                                    onMouseDown={(e) => handleResizeStart(e, appointment.id, "end")}
+                                  />
+                                )}
+
+                                <div className="font-semibold truncate">{displayInfo.displayText}</div>
                                 <div className="text-xs opacity-90 truncate">
-                                  {formatTime(new Date(appointment.startTime))} -{" "}
-                                  {formatTime(new Date(appointment.endTime))}
+                                  {displayInfo.showTime && (
+                                    <span>
+                                      {displayInfo.isFirstDay && displayInfo.isMultiDay
+                                        ? `${formatTime(new Date(appointment.startTime))} →`
+                                        : displayInfo.isLastDay && displayInfo.isMultiDay
+                                          ? `→ ${formatTime(new Date(appointment.endTime))}`
+                                          : `${formatTime(new Date(appointment.startTime))} - ${formatTime(new Date(appointment.endTime))}`}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             )
@@ -671,48 +683,6 @@ export function WeekView({
           ))}
         </div>
       </div>
-
-      {/* Drag Preview */}
-      {dragPreview && !draggedGroup && (
-        <div
-          className="fixed pointer-events-none z-[9999]"
-          style={{
-            left: dragPreview.mouseX - 100,
-            top: dragPreview.mouseY - 20,
-          }}
-        >
-          {dragPreview.dates.map((date, index) => {
-            const appointment = appointments.find((apt) => apt.id === dragPreview.appointmentId)
-            if (!appointment) return null
-
-            const displayInfo = getAppointmentDisplayInfo(appointment, date)
-            const isFirst = index === 0
-            const isLast = index === dragPreview.dates.length - 1
-
-            return (
-              <div
-                key={index}
-                className={`inline-block px-3 py-2 text-xs text-white font-medium ${appointment.color} opacity-80 shadow-lg ${isFirst ? "rounded-l" : ""} ${isLast ? "rounded-r" : ""}`}
-                style={{
-                  minWidth: "120px",
-                  height: "45px",
-                }}
-              >
-                <div className="font-semibold truncate">{displayInfo.displayText}</div>
-                {displayInfo.showTime && (
-                  <div className="text-xs opacity-90 truncate">
-                    {displayInfo.isFirstDay && displayInfo.isMultiDay
-                      ? `${formatTime(new Date(appointment.startTime))} →`
-                      : displayInfo.isLastDay && displayInfo.isMultiDay
-                        ? `→ ${formatTime(new Date(appointment.endTime))}`
-                        : `${formatTime(new Date(appointment.startTime))} - ${formatTime(new Date(appointment.endTime))}`}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
     </div>
   )
 }

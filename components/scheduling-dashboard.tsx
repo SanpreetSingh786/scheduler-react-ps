@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { ChevronLeft, ChevronRight, Settings, Palette } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -47,8 +47,20 @@ export function SchedulingDashboard({ appointments, facilities, facilityGroups }
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [modalAppointment, setModalAppointment] = useState<Appointment | null>(null)
-  const [timeScale, setTimeScale] = useState(2) // 2-hour intervals
+  const [timeScale, setTimeScale] = useState(6) // 6-hour intervals
   const [timeOffset, setTimeOffset] = useState(0) // Starting hour offset
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "n" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault()
+        handleCreateAppointment()
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
 
   const handleAppointmentUpdate = useCallback(
     (appointmentId: string, newStartTime: Date, newEndTime: Date, newFacility: string) => {
@@ -114,7 +126,7 @@ export function SchedulingDashboard({ appointments, facilities, facilityGroups }
         startTime: appointmentData.startTime || new Date(),
         endTime: appointmentData.endTime || new Date(),
         type: appointmentData.type || "",
-        color: "bg-blue-400",
+        color: appointmentData.color || "bg-blue-400",
       }
       setCurrentAppointments((prev) => [...prev, newAppointment])
     }
@@ -122,9 +134,16 @@ export function SchedulingDashboard({ appointments, facilities, facilityGroups }
   }
 
   const handleTimeScaleWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
-    const delta = e.deltaY > 0 ? 1 : -1
-    setTimeScale((prev) => Math.max(1, Math.min(6, prev + delta)))
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      const delta = e.deltaY > 0 ? 1 : -1
+      setTimeScale((prev) => Math.max(1, Math.min(12, prev + delta)))
+    } else if (e.shiftKey) {
+      // Handle horizontal scrolling for time navigation
+      e.preventDefault()
+      const delta = e.deltaY > 0 ? 2 : -2
+      setTimeOffset((prev) => Math.max(0, Math.min(22, prev + delta)))
+    }
   }
 
   return (

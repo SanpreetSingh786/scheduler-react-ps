@@ -1,16 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { CalendarDays } from "lucide-react"
+import { Calendar, X } from "lucide-react"
 import { format } from "date-fns"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -37,6 +30,23 @@ const appointmentTypes = [
   { value: "Surgery", color: "bg-indigo-400" },
 ]
 
+// Generate time options for dropdowns
+const generateTimeOptions = () => {
+  const times = []
+  for (let hour = 0; hour < 24; hour++) {
+    for (let minute = 0; minute < 60; minute += 30) {
+      const timeString = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`
+      const displayTime = new Date(2000, 0, 1, hour, minute).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      })
+      times.push({ value: timeString, label: displayTime })
+    }
+  }
+  return times
+}
+
 export function AppointmentModal({
   isOpen,
   onClose,
@@ -54,6 +64,8 @@ export function AppointmentModal({
   const [endTime, setEndTime] = useState("17:00")
   const [type, setType] = useState("")
   const [color, setColor] = useState("bg-blue-400")
+
+  const timeOptions = generateTimeOptions()
 
   // Pre-populate form when editing an appointment
   useEffect(() => {
@@ -122,47 +134,54 @@ export function AppointmentModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px]">
-        <DialogHeader>
-          <DialogTitle>{appointment ? "Edit Appointment" : "Create New Appointment"}</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="sm:max-w-[500px] p-0 gap-0">
+        <DialogHeader className="px-6 py-4 border-b">
+          <div className="flex items-center justify-between">
+            <DialogTitle className="text-lg font-semibold">
+              {appointment ? "Edit Appointment" : "Create New Appointment"}
+            </DialogTitle>
+            <Button variant="ghost" size="sm" onClick={onClose} className="h-6 w-6 p-0">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-sm text-gray-600 mt-1">
             {appointment ? "Update the appointment details below." : "Fill in the details to create a new appointment."}
-          </DialogDescription>
+          </p>
         </DialogHeader>
 
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="title" className="text-right">
+        <div className="px-6 py-4 space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="title" className="text-sm font-medium">
               Title
             </Label>
             <Input
               id="title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="col-span-3"
               placeholder="Appointment title"
+              className="w-full"
             />
           </div>
 
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="provider" className="text-right">
+          <div className="space-y-2">
+            <Label htmlFor="provider" className="text-sm font-medium">
               Provider
             </Label>
             <Input
               id="provider"
               value={provider}
               onChange={(e) => setProvider(e.target.value)}
-              className="col-span-3"
               placeholder="Provider name"
+              className="w-full"
             />
           </div>
 
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="facility" className="text-right">
+          <div className="space-y-2">
+            <Label htmlFor="facility" className="text-sm font-medium">
               Facility
             </Label>
             <Select value={facility} onValueChange={setFacility}>
-              <SelectTrigger className="col-span-3">
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select facility" />
               </SelectTrigger>
               <SelectContent>
@@ -175,19 +194,19 @@ export function AppointmentModal({
             </Select>
           </div>
 
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="type" className="text-right">
+          <div className="space-y-2">
+            <Label htmlFor="type" className="text-sm font-medium">
               Type
             </Label>
             <Select value={type} onValueChange={handleTypeChange}>
-              <SelectTrigger className="col-span-3">
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select appointment type" />
               </SelectTrigger>
               <SelectContent>
                 {appointmentTypes.map((t) => (
                   <SelectItem key={t.value} value={t.value}>
                     <div className="flex items-center gap-2">
-                      <div className={`w-3 h-3 rounded ${t.color}`} />
+                      <div className={`w-3 h-3 rounded-full ${t.color}`} />
                       {t.value}
                     </div>
                   </SelectItem>
@@ -196,86 +215,101 @@ export function AppointmentModal({
             </Select>
           </div>
 
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label className="text-right">Start Date</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="col-span-3 justify-start text-left font-normal">
-                  <CalendarDays className="mr-2 h-4 w-4" />
-                  {startDate ? format(startDate, "PPP") : "Pick a date"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0">
-                <CalendarComponent mode="single" selected={startDate} onSelect={setStartDate} initialFocus />
-              </PopoverContent>
-            </Popover>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Start Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    <Calendar className="mr-2 h-4 w-4" />
+                    {startDate ? format(startDate, "MMM dd, yyyy") : "Pick a date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarComponent mode="single" selected={startDate} onSelect={setStartDate} initialFocus />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="startTime" className="text-sm font-medium">
+                Start Time
+              </Label>
+              <Select value={startTime} onValueChange={setStartTime}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select time" />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  {timeOptions.map((time) => (
+                    <SelectItem key={time.value} value={time.value}>
+                      {time.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="startTime" className="text-right">
-              Start Time
-            </Label>
-            <Input
-              id="startTime"
-              type="time"
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="col-span-3"
-            />
-          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">End Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    <Calendar className="mr-2 h-4 w-4" />
+                    {endDate ? format(endDate, "MMM dd, yyyy") : "Pick a date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarComponent mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
+                </PopoverContent>
+              </Popover>
+            </div>
 
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label className="text-right">End Date</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="col-span-3 justify-start text-left font-normal">
-                  <CalendarDays className="mr-2 h-4 w-4" />
-                  {endDate ? format(endDate, "PPP") : "Pick a date"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0">
-                <CalendarComponent mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="endTime" className="text-right">
-              End Time
-            </Label>
-            <Input
-              id="endTime"
-              type="time"
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              className="col-span-3"
-            />
+            <div className="space-y-2">
+              <Label htmlFor="endTime" className="text-sm font-medium">
+                End Time
+              </Label>
+              <Select value={endTime} onValueChange={setEndTime}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select time" />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  {timeOptions.map((time) => (
+                    <SelectItem key={time.value} value={time.value}>
+                      {time.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 
-        <DialogFooter>
-          <div className="flex justify-between w-full">
-            <div>
-              {appointment && onDelete && (
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    onDelete()
-                    onClose()
-                  }}
-                >
-                  Delete
-                </Button>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={onClose}>
-                Cancel
+        <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50">
+          <div>
+            {appointment && onDelete && (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  onDelete()
+                  onClose()
+                }}
+                className="bg-red-500 hover:bg-red-600"
+              >
+                Delete
               </Button>
-              <Button onClick={handleSave}>{appointment ? "Update" : "Create"} Appointment</Button>
-            </div>
+            )}
           </div>
-        </DialogFooter>
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} className="bg-gray-800 hover:bg-gray-900 text-white">
+              {appointment ? "Update Appointment" : "Create Appointment"}
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   )
